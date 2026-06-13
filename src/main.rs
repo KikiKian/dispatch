@@ -14,6 +14,8 @@ fn main() {
 }
 
 fn read_tasks() -> HashMap<String, Process> {
+    // reads current processes sys has 
+
     let mut sys = System::new_all();
     sys.refresh_all();
     let mut all_processes: HashMap<String, Process> = HashMap::new();
@@ -29,13 +31,15 @@ fn read_tasks() -> HashMap<String, Process> {
 
 fn eval_process() -> u16 {
     //TODO write this fn 
-    //
+    //this fn will evauluate the stated proccess to see if it is a high priority process
     //temp
     return 0 
 }
 
 #[cfg(target_os = "windows")]
 fn direct_process(process: &Process, core_id: usize) {
+    // this fn directs the stated process to designated core_id (ex process -> core 5)
+
     use winapi::um::processthreadsapi::OpenProcess;
     use winapi::um::winbase::SetProcessAffinityMask;
     use winapi::um::handleapi::CloseHandle;
@@ -60,6 +64,8 @@ fn direct_process(process: &Process, core_id: usize) {
 
 #[cfg(target_os = "linux")]
 fn direct_process(process: &Process, core_id: usize) {
+    // this fn directs the stated process to designated core_id (ex process -> core 5)
+
     use nix::sched::{CpuSet, sched_setaffinity};
     use nix::unistd::Pid;
     let pid: i32 = process.pid.trim().parse().expect("invalid pid");
@@ -72,6 +78,7 @@ fn direct_process(process: &Process, core_id: usize) {
 }
 
 fn eco_mode() {
+    // this fn puts dispatch into eco mode so that it uses less resources 
     let processes: HashMap<String, Process> = read_tasks();
     let mut sys = System::new_all();
     sys.refresh_all();
@@ -90,4 +97,5 @@ fn eco_mode() {
 
 fn performance_mode() {
     //TODO write this fn 
+    // this fn puts dispatch into performance mode [idk what to say lol]
 }
