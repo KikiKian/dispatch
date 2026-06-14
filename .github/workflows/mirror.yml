@@ -15,4 +15,4 @@ jobs:
       - name: Push to Codeberg
         run: |
           git remote add codeberg https://kikikian:${{ secrets.CODEBERG_TOKEN }}@codeberg.org/kikikian/dispatch.git
-          git push codeberg master --force
+          git push codeberg main --force
