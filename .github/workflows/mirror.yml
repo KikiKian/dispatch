@@ -1,3 +1,4 @@
+name: mirror
 on:
   push:
     branches:
