@@ -1,1 +1,1 @@
-target/ linguist-excluded=true
+target/** linguist-vendored=true
