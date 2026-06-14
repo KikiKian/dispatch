@@ -36,6 +36,11 @@ fn eval_process() -> u16 {
     return 0 
 }
 
+fn get_priority_processes() -> HashMap<String, Process>{
+    //TODO
+    todo!()
+}
+
 #[cfg(target_os = "windows")]
 fn direct_process(process: &Process, core_id: usize) {
     // this fn directs the stated process to designated core_id (ex process -> core 5)
@@ -88,7 +93,7 @@ fn eco_mode() {
     } else {
         core_count / 2
     };
-    for (_pid, process) in &processes {
+    for (_pid, process) in &processes { 
         for core in 0..eco_cores {
             direct_process(process, core);
         }
@@ -98,4 +103,11 @@ fn eco_mode() {
 fn performance_mode() {
     //TODO write this fn 
     // this fn puts dispatch into performance mode [idk what to say lol]
+    // will direct priority processes first then will direct based on eval_process()
+    let processes: HashMap<String, Process> = read_tasks();
+    let mut sys = System::new_all();
+    sys.refresh_all();
+    let core_count = sys.physical_core_count().unwrap_or(1);
+    
+    let _priority = get_priority_processes();
 }
