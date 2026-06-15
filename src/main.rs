@@ -1,12 +1,14 @@
 use sysinfo::{System, SystemExt, ProcessExt, Pid};
 use std::collections::HashMap;
+use std::io::{self, Write};
 
 mod tui;
+mod tests;
 
 #[derive(Debug)]
-struct Process {
-    pid: usize,
-    name: String,
+pub struct Process {
+    pub pid: usize,
+    pub name: String,
 }
 
 fn main() {
@@ -21,7 +23,7 @@ fn main() {
     println!("eval of task0 {}", eval);
 }
 
-fn read_tasks() -> HashMap<usize, Process> {
+pub fn read_tasks() -> HashMap<usize, Process> {
     // reads current processes sys has
     let mut sys = System::new_all();
     sys.refresh_all();
@@ -34,12 +36,14 @@ fn read_tasks() -> HashMap<usize, Process> {
         .collect()
 }
 
-fn rand_pid(processes: HashMap<usize, Process>) -> usize {
+
+
+pub fn rand_pid(processes: HashMap<usize, Process>) -> usize {
     let first_pid = processes.keys().next().unwrap();
     return *first_pid;
 }
 
-fn eval_process(pid: Pid) -> u16 {
+pub fn eval_process(pid: Pid) -> u16 {
     //TODO write this fn
     //this fn will evauluate the stated proccess to see if it is a high priority process
     let mut sys = System::new_all();
@@ -48,6 +52,7 @@ fn eval_process(pid: Pid) -> u16 {
     if let Some(process) = sys.process(pid) {
         let mem_kb = process.memory();
         let mem_mb = mem_kb / 1024;
+
         return mem_mb as u16;
     } else {
         println!("failiure retrieving eval for pid: {}", pid);
@@ -56,9 +61,13 @@ fn eval_process(pid: Pid) -> u16 {
  
 }   
 
-fn get_priority_processes() -> HashMap<usize, Process> {
+fn get_priority_processes() -> usize {
     //TODO
-    todo!()
+    let mut input = String::new();
+    io::stdin()
+        .read_line(&mut input)
+        .expect("Failed to read line (std::in)");
+    input.trim().parse::<usize>().unwrap_or(0)
 }
 
 #[cfg(target_os = "windows")]
@@ -122,4 +131,59 @@ fn performance_mode() {
     let _core_count = sys.physical_core_count().unwrap_or(1);
 
     let _priority = get_priority_processes();
+}
+
+// Returns CPU usage percentage (0.0–100.0) for the given pid.
+fn cpu_usage_of(pid: Pid) -> f32 {
+    todo!()
+}
+
+// Combines CPU usage and memory into a single priority score (higher = more important).
+fn score_process(pid: Pid) -> u32 {
+    todo!()
+}
+
+// Returns the load (0.0–1.0) for each logical core.
+fn get_core_loads() -> Vec<f32> {
+    todo!()
+}
+
+// Redistributes all processes across cores to balance load evenly.
+fn auto_balance() {
+    todo!()
+}
+
+// Reserves dedicated cores for a single high-priority process and pushes everything else away.
+fn gaming_mode(target_pid: Pid) {
+    todo!()
+}
+
+// Terminates all processes whose score falls below `threshold`.
+fn kill_low_priority(threshold: u32) {
+    todo!()
+}
+
+// Suspends (pauses) a process without killing it.
+fn suspend_process(pid: Pid) {
+    todo!()
+}
+
+// Resumes a previously suspended process.
+fn resume_process(pid: Pid) {
+    todo!()
+}
+
+// Reads a config file at `path` for user-defined priority rules and blacklists.
+fn load_config(path: &str) {
+    todo!()
+}
+
+// Polls every `interval_secs` seconds, re-evaluating and re-pinning all processes.
+fn watch(interval_secs: u64) {
+    todo!()
+}
+
+// Writes a snapshot of current process-to-core assignments to a log file.
+fn log_state(path: &str) {
+    todo!()
 }

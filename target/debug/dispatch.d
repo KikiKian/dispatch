@@ -1,1 +1,1 @@
-C:\Users\kian\desktop\coding\dispatch\target\debug\dispatch.exe: C:\Users\kian\desktop\coding\dispatch\src\main.rs C:\Users\kian\desktop\coding\dispatch\src\tui.rs
+C:\Users\kian\desktop\coding\dispatch\target\debug\dispatch.exe: C:\Users\kian\desktop\coding\dispatch\src\main.rs C:\Users\kian\desktop\coding\dispatch\src\tests.rs C:\Users\kian\desktop\coding\dispatch\src\tui.rs
