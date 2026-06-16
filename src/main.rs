@@ -67,7 +67,7 @@ fn get_priority_processes() -> usize {
     io::stdin()
         .read_line(&mut input)
         .expect("Failed to read line (std::in)");
-    input.trim().parse::<usize>().unwrap_or(0)
+    return input.trim().parse::<usize>().unwrap_or(0);
 }
 
 #[cfg(target_os = "windows")]
