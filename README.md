@@ -33,3 +33,13 @@ cargo run
 ---
 
 *"Built for efficiency, founded by simplicity."*
+
+## Tickets
+
+- [ ] Finish each mode (performance, gaming, eco)
+    - [ ] Maybe multi-threading processing
+    - [ ] better algo 
+- [ ] Daemon integration
+- [ ] Testing implementation for linux
+    - [ ] likely on WSL 
+
