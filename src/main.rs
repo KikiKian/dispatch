@@ -1,4 +1,4 @@
-use sysinfo::{System, SystemExt, ProcessExt, Pid};
+use sysinfo::{System, SystemExt, ProcessExt, Pid, ProcessToUpdate, ProcessRefreshKind};
 use std::collections::HashMap;
 use std::io::{self, Write};
 
@@ -12,7 +12,6 @@ pub struct Process {
 }
 
 fn main() {
-    //TODO link all of it together
     println!("temp");
 
     let tasks = read_tasks();
@@ -44,7 +43,6 @@ pub fn rand_pid(processes: HashMap<usize, Process>) -> usize {
 }
 
 pub fn eval_process(pid: Pid) -> u16 {
-    //TODO write this fn
     //this fn will evauluate the stated proccess to see if it is a high priority process
     let mut sys = System::new_all();
     sys.refresh_all();
@@ -62,7 +60,6 @@ pub fn eval_process(pid: Pid) -> u16 {
 }   
 
 fn get_priority_processes() -> usize {
-    //TODO
     let mut input = String::new();
     io::stdin()
         .read_line(&mut input)
@@ -135,7 +132,25 @@ fn performance_mode() {
 
 // Returns CPU usage percentage (0.0–100.0) for the given pid.
 fn cpu_usage_of(pid: Pid) -> f32 {
-    todo!()
+    let mut sys = System.new_all();
+
+    sys.refresh_processes(ProcessToUpdate::Some(&[Pid::from(pid)]));
+    
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::Some(&[Pid::from(target_pid)]), 
+        ProcessRefreshKind::new().with_cpu()
+    );
+ 
+    if let Some(process) = sys.process(Pid::from(target_pid)) {
+        let cpu_usage: f32 = process.cpu_usage();
+        println!("Process '{}' is using {:.2}% CPU", process.name(), process.cpu_usage());
+        return cpu_usage;
+    } else {
+        println!("Process with PID {} not found.", target_pid);
+        return 0;
+    }
+}
+
 }
 
 // Combines CPU usage and memory into a single priority score (higher = more important).
