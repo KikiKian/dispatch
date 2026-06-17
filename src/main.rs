@@ -1,4 +1,4 @@
-use sysinfo::{System, SystemExt, ProcessExt, Pid, ProcessToUpdate, ProcessRefreshKind};
+use sysinfo::{System, SystemExt, ProcessExt, Pid, ProcessRefreshKind};
 use std::collections::HashMap;
 use std::io::{self, Write};
 
@@ -18,7 +18,7 @@ fn main() {
     println!("tasks {:#?}", tasks);
     let task0_pid = rand_pid(tasks);
     println!("tasks 0 : {}", task0_pid);
-    let eval = eval_process(task0_pid.into());
+    let eval = mem_process(task0_pid.into());
     println!("eval of task0 {}", eval);
 }
 
@@ -42,8 +42,7 @@ pub fn rand_pid(processes: HashMap<usize, Process>) -> usize {
     return *first_pid;
 }
 
-pub fn eval_process(pid: Pid) -> u16 {
-    //this fn will evauluate the stated proccess to see if it is a high priority process
+pub fn mem_process(pid: Pid) -> u16 { 
     let mut sys = System::new_all();
     sys.refresh_all();
 
@@ -121,41 +120,41 @@ fn eco_mode() {
 fn performance_mode() {
     //TODO write this fn
     // this fn puts dispatch into performance mode [idk what to say lol]
-    // will direct priority processes first then will direct based on eval_process()
+    // will direct priority processes first then will direct based on mem_process()
     let processes = read_tasks();
     let mut sys = System::new_all();
     sys.refresh_all();
     let _core_count = sys.physical_core_count().unwrap_or(1);
 
     let _priority = get_priority_processes();
+
+    todo!();
 }
 
 // Returns CPU usage percentage (0.0–100.0) for the given pid.
 fn cpu_usage_of(pid: Pid) -> f32 {
-    let mut sys = System.new_all();
+    let mut sys = System::new_all();
 
-    sys.refresh_processes(ProcessToUpdate::Some(&[Pid::from(pid)]));
-    
     sys.refresh_processes_specifics(
-        ProcessesToUpdate::Some(&[Pid::from(target_pid)]), 
         ProcessRefreshKind::new().with_cpu()
     );
- 
-    if let Some(process) = sys.process(Pid::from(target_pid)) {
+
+    if let Some(process) = sys.process(pid) {
         let cpu_usage: f32 = process.cpu_usage();
         println!("Process '{}' is using {:.2}% CPU", process.name(), process.cpu_usage());
         return cpu_usage;
     } else {
-        println!("Process with PID {} not found.", target_pid);
-        return 0;
+        println!("Process with PID {} not found.", pid);
+        return 0.0;
     }
 }
 
-}
-
 // Combines CPU usage and memory into a single priority score (higher = more important).
-fn score_process(pid: Pid) -> u32 {
-    todo!()
+fn eval_process(pid: Pid) -> u32 {
+    let mem = mem_process(pid);
+    let usage = cpu_usage_of(pid);
+    
+    todo!();
 }
 
 // Returns the load (0.0–1.0) for each logical core.
