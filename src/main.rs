@@ -46,12 +46,12 @@ fn read_tasks() -> HashMap<usize, Process> {
 
 
 
-pub fn rand_pid(processes: HashMap<usize, Process>) -> usize {
+fn rand_pid(processes: HashMap<usize, Process>) -> usize {
     let first_pid = processes.keys().next().unwrap();
     return *first_pid;
 }
 
-pub fn mem_process(sys: &System, pid: Pid) -> u16 {
+fn mem_process(sys: &System, pid: Pid) -> u16 {
     if let Some(process) = sys.process(pid) {
         let mem_kb = process.memory();
         let mem_mb = mem_kb / 1024;
@@ -205,7 +205,7 @@ fn get_core_loads() -> Vec<f32> {
     todo!()
 }
 
-// Redistributes all processes across cores to balance load evenly.
+// This fn redistributes all processes across cores to balance load evenly.
 fn auto_balance() {
     todo!()
 }
