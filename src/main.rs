@@ -200,14 +200,16 @@ fn eval_process(pid: Pid) -> u32 {
     return score_process(&sys, &priority, pid);
 }
 
-// Returns the load (0.0–1.0) for each logical core.
-fn get_core_loads() -> Vec<f32> {
-    todo!()
-}
-
 // This fn redistributes all processes across cores to balance load evenly.
 fn auto_balance() {
-    todo!()
+    let processes = read_tasks();
+    let core_count = sys.physical_core_count().unwrap_or(1);
+
+    for (_pid, process) in &processes {
+        for core in 0..core_count {
+            direct_process(process, core);
+        }
+    }
 }
 
 // Reserves dedicated cores for a single high-priority process and pushes everything else away.
