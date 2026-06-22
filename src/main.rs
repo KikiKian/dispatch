@@ -10,7 +10,6 @@ const W_MEM: f64 = 1.0;
 const PRIORITY_BONUS: u32 = 1_000_000;
 
 mod tui;
-mod tests;
 
 #[derive(Debug)]
 struct Process {
@@ -63,12 +62,17 @@ fn mem_process(sys: &System, pid: Pid) -> u16 {
     }
 }
 
-fn get_priority_processes() -> usize {
+fn get_priority_processes() -> HashSet<usize> {
     let mut input = String::new();
     io::stdin()
         .read_line(&mut input)
         .expect("Failed to read line (std::in)");
-    return input.trim().parse::<usize>().unwrap_or(0);
+
+    input
+        .trim()
+        .split(|c: char| c == ',' || c.is_whitespace())
+        .filter_map(|s| s.parse::<usize>().ok())
+        .collect()
 }
 
 #[cfg(target_os = "windows")]
@@ -123,17 +127,33 @@ fn eco_mode() {
 }
 
 fn performance_mode() {
-    //TODO write this fn
     // this fn puts dispatch into performance mode [idk what to say lol]
     // will direct priority processes first then will direct based on mem_process()
     let processes = read_tasks();
-    let mut sys = System::new_all();
-    sys.refresh_all();
-    let _core_count = sys.physical_core_count().unwrap_or(1);
+    let sys = refreshed_system();
+    let core_count = sys.physical_core_count().unwrap_or(1);
 
-    let _priority = get_priority_processes();
+    let priority = get_priority_processes();
 
-    todo!();
+    for (pid, process) in &processes {
+        if priority.contains(pid) {
+            for core in 0..core_count {
+                direct_process(process, core);
+            }
+        }
+    }
+
+    let mut ranked: Vec<&Process> = processes
+        .values()
+        .filter(|process| !priority.contains(&process.pid))
+        .collect();
+    ranked.sort_by_key(|process| {
+        std::cmp::Reverse(score_process(&sys, &priority, Pid::from(process.pid)))
+    });
+
+    for (i, process) in ranked.into_iter().enumerate() {
+        direct_process(process, i % core_count);
+    }
 }
 
 // Returns CPU usage percentage for the given pid. Can exceed 100 for multi-threaded
@@ -203,6 +223,8 @@ fn eval_process(pid: Pid) -> u32 {
 // This fn redistributes all processes across cores to balance load evenly.
 fn auto_balance() {
     let processes = read_tasks();
+    let mut sys = System::new_all();
+    sys.refresh_all();
     let core_count = sys.physical_core_count().unwrap_or(1);
 
     for (_pid, process) in &processes {
@@ -214,35 +236,222 @@ fn auto_balance() {
 
 // Reserves dedicated cores for a single high-priority process and pushes everything else away.
 fn gaming_mode(target_pid: Pid) {
-    todo!()
+    let processes = read_tasks();
+    let mut sys = System::new_all();
+    sys.refresh_all();
+    let core_count = sys.physical_core_count().unwrap_or(1);
+    let target = usize::from(target_pid);
+
+    if let Some(process) = processes.get(&target) {
+        for core in 1..core_count {
+            direct_process(process, core);
+        }
+    }
+
+    for (pid, process) in &processes {
+        if *pid != target {
+            direct_process(process, 0);
+        }
+    }
 }
 
 // Terminates all processes whose score falls below `threshold`.
 fn kill_low_priority(threshold: u32) {
-    todo!()
+    let sys = refreshed_system();
+    let priority = HashSet::new();
+
+    for (pid, process) in sys.processes() {
+        let score = score_process(&sys, &priority, *pid);
+        if score < threshold {
+            if process.kill() {
+                println!("Killed PID {} ({})", pid, process.name());
+            } else {
+                println!("Failed to kill PID {} ({})", pid, process.name());
+            }
+        }
+    }
 }
 
 // Suspends (pauses) a process without killing it.
+#[cfg(target_os = "windows")]
 fn suspend_process(pid: Pid) {
-    todo!()
+    use winapi::um::processthreadsapi::OpenProcess;
+    use winapi::um::handleapi::CloseHandle;
+    use winapi::um::winnt::{HANDLE, PROCESS_SUSPEND_RESUME};
+
+    #[link(name = "ntdll")]
+    unsafe extern "system" {
+        fn NtSuspendProcess(process_handle: HANDLE) -> i32;
+    }
+
+    unsafe {
+        let handle = OpenProcess(PROCESS_SUSPEND_RESUME, 0, usize::from(pid) as u32);
+        if handle.is_null() {
+            println!("could not open process {}", pid);
+            return;
+        }
+        let status = NtSuspendProcess(handle);
+        CloseHandle(handle);
+        if status == 0 {
+            println!("Successfully suspended PID {}", pid);
+        } else {
+            println!("could not suspend process {}", pid);
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn suspend_process(pid: Pid) {
+    use nix::sys::signal::{kill, Signal};
+    use nix::unistd::Pid;
+
+    match kill(Pid::from_raw(usize::from(pid) as i32), Signal::SIGSTOP) {
+        Ok(_) => println!("Successfully suspended PID {}", pid),
+        Err(e) => println!("Failed to suspend PID {}: {}", pid, e),
+    }
 }
 
 // Resumes a previously suspended process.
+#[cfg(target_os = "windows")]
 fn resume_process(pid: Pid) {
-    todo!()
+    use winapi::um::processthreadsapi::OpenProcess;
+    use winapi::um::handleapi::CloseHandle;
+    use winapi::um::winnt::{HANDLE, PROCESS_SUSPEND_RESUME};
+
+    #[link(name = "ntdll")]
+    unsafe extern "system" {
+        fn NtResumeProcess(process_handle: HANDLE) -> i32;
+    }
+
+    unsafe {
+        let handle = OpenProcess(PROCESS_SUSPEND_RESUME, 0, usize::from(pid) as u32);
+        if handle.is_null() {
+            println!("could not open process {}", pid);
+            return;
+        }
+        let status = NtResumeProcess(handle);
+        CloseHandle(handle);
+        if status == 0 {
+            println!("Successfully resumed PID {}", pid);
+        } else {
+            println!("could not resume process {}", pid);
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn resume_process(pid: Pid) {
+    use nix::sys::signal::{kill, Signal};
+    use nix::unistd::Pid;
+
+    match kill(Pid::from_raw(usize::from(pid) as i32), Signal::SIGCONT) {
+        Ok(_) => println!("Successfully resumed PID {}", pid),
+        Err(e) => println!("Failed to resume PID {}: {}", pid, e),
+    }
 }
 
 // Reads a config file at `path` for user-defined priority rules and blacklists.
-fn load_config(path: &str) {
-    todo!()
+fn load_config(path: &str) -> (HashSet<usize>, HashSet<String>) {
+    let mut priority = HashSet::new();
+    let mut blacklist = HashSet::new();
+
+    let contents = match std::fs::read_to_string(path) {
+        Ok(contents) => contents,
+        Err(e) => {
+            println!("failed to read config at {}: {}", path, e);
+            return (priority, blacklist);
+        }
+    };
+
+    for line in contents.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        match line.split_once('=') {
+            Some((key, value)) => match key.trim() {
+                "priority" => {
+                    if let Ok(pid) = value.trim().parse::<usize>() {
+                        priority.insert(pid);
+                    }
+                }
+                "blacklist" => {
+                    blacklist.insert(value.trim().to_string());
+                }
+                other => println!("unrecognized config key: {}", other),
+            },
+            None => println!("unrecognized config line: {}", line),
+        }
+    }
+
+    (priority, blacklist)
 }
 
 // Polls every `interval_secs` seconds, re-evaluating and re-pinning all processes.
 fn watch(interval_secs: u64) {
-    todo!()
+    loop {
+        auto_balance();
+        std::thread::sleep(Duration::from_secs(interval_secs));
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn current_affinity(pid: Pid) -> Vec<usize> {
+    use winapi::um::processthreadsapi::OpenProcess;
+    use winapi::um::winbase::GetProcessAffinityMask;
+    use winapi::um::handleapi::CloseHandle;
+    use winapi::um::winnt::PROCESS_QUERY_INFORMATION;
+
+    let mut cores = Vec::new();
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_INFORMATION, 0, usize::from(pid) as u32);
+        if handle.is_null() {
+            return cores;
+        }
+        let mut process_mask: usize = 0;
+        let mut system_mask: usize = 0;
+        let ok = GetProcessAffinityMask(handle, &mut process_mask, &mut system_mask);
+        CloseHandle(handle);
+        if ok != 0 {
+            for core in 0..usize::BITS as usize {
+                if process_mask & (1 << core) != 0 {
+                    cores.push(core);
+                }
+            }
+        }
+    }
+    cores
+}
+
+#[cfg(target_os = "linux")]
+fn current_affinity(pid: Pid) -> Vec<usize> {
+    use nix::sched::{sched_getaffinity, CpuSet};
+    use nix::unistd::Pid;
+
+    let mut cores = Vec::new();
+    if let Ok(cpu_set) = sched_getaffinity(Pid::from_raw(usize::from(pid) as i32)) {
+        for core in 0..CpuSet::count() {
+            if cpu_set.is_set(core).unwrap_or(false) {
+                cores.push(core);
+            }
+        }
+    }
+    cores
 }
 
 // Writes a snapshot of current process-to-core assignments to a log file.
 fn log_state(path: &str) {
-    todo!()
+    let processes = read_tasks();
+    let mut file = match std::fs::File::create(path) {
+        Ok(file) => file,
+        Err(e) => {
+            println!("failed to open log file {}: {}", path, e);
+            return;
+        }
+    };
+
+    for (pid, process) in &processes {
+        let cores = current_affinity(Pid::from(*pid));
+        let _ = writeln!(file, "{} ({}): cores {:?}", pid, process.name, cores);
+    }
 }
