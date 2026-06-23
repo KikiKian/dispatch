@@ -17,17 +17,8 @@ struct Process {
     name: String,
 }
 
-fn main() {
-    println!("temp");
-
-    let tasks = read_tasks();
-    println!("tasks {:#?}", tasks);
-    let task0_pid = rand_pid(tasks);
-    println!("tasks 0 : {}", task0_pid);
-    let mut sys = System::new_all();
-    sys.refresh_all();
-    let eval = mem_process(&sys, task0_pid.into());
-    println!("eval of task0 {}", eval);
+fn main() -> io::Result<()> {
+    tui::tui()
 }
 
 fn read_tasks() -> HashMap<usize, Process> {
@@ -126,14 +117,12 @@ fn eco_mode() {
     }
 }
 
-fn performance_mode() {
+fn performance_mode(priority: &HashSet<usize>) {
     // this fn puts dispatch into performance mode [idk what to say lol]
     // will direct priority processes first then will direct based on mem_process()
     let processes = read_tasks();
     let sys = refreshed_system();
     let core_count = sys.physical_core_count().unwrap_or(1);
-
-    let priority = get_priority_processes();
 
     for (pid, process) in &processes {
         if priority.contains(pid) {
@@ -148,7 +137,7 @@ fn performance_mode() {
         .filter(|process| !priority.contains(&process.pid))
         .collect();
     ranked.sort_by_key(|process| {
-        std::cmp::Reverse(score_process(&sys, &priority, Pid::from(process.pid)))
+        std::cmp::Reverse(score_process(&sys, priority, Pid::from(process.pid)))
     });
 
     for (i, process) in ranked.into_iter().enumerate() {
