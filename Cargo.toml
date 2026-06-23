@@ -6,5 +6,8 @@ edition = "2024"
 [dependencies]
 nix = { version = "0.31.3", features = ["sched", "signal"] }
 sysinfo = "0.29"
+crossterm = "0.28"
+ratatui = "0.29"
+
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3.9", features = ["processthreadsapi", "handleapi", "winnt", "winbase"] }
