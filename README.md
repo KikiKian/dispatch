@@ -8,7 +8,7 @@ Dispatch is a process manager that lets you control which CPU cores your running
 Restricts all processes to half of the available physical cores. Useful for reducing heat and power consumption while keeping the system responsive.
 
 ### Performance Mode
-_(in progress)_ Prioritizes high-value processes by directing them to dedicated cores first, then distributes remaining processes based on evaluation scores.
+Prioritizes high-value processes by directing them to dedicated cores first, then distributes remaining processes based on evaluation scores.
 
 ## Platform Support
 
@@ -26,7 +26,6 @@ cargo build --release
 ## Usage
 
 ```sh
-# not yet implemented — TUI and mode selection coming soon
 cargo run
 ```
 

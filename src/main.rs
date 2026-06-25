@@ -48,8 +48,7 @@ fn mem_process(sys: &System, pid: Pid) -> u16 {
 
         return mem_mb as u16;
     } else {
-        println!("failiure retrieving eval for pid: {}", pid);
-        return 0;
+        0
     }
 }
 
@@ -67,68 +66,78 @@ fn get_priority_processes() -> HashSet<usize> {
 }
 
 #[cfg(target_os = "windows")]
-fn direct_process(process: &Process, core_id: usize) {
-    // this fn directs the stated process to designated core_id (ex process -> core 5)
+fn direct_process(process: &Process, mask: usize, log: &mut Vec<String>) {
+    // Pins `process` to every core set in `mask` (bit i = core i) with a single
+    // syscall. SetProcessAffinityMask *replaces* the mask rather than adding to
+    // it, so calling this once per core (the old approach) only ever left the
+    // process pinned to the last core in the loop.
     use winapi::um::processthreadsapi::OpenProcess;
     use winapi::um::winbase::SetProcessAffinityMask;
     use winapi::um::handleapi::CloseHandle;
-    use winapi::um::winnt::PROCESS_ALL_ACCESS;
-    let mask: usize = 1 << core_id;
+    use winapi::um::winnt::PROCESS_SET_INFORMATION;
     unsafe {
-        let handle = OpenProcess(PROCESS_ALL_ACCESS, 0, process.pid as u32);
+        let handle = OpenProcess(PROCESS_SET_INFORMATION, 0, process.pid as u32);
         if handle.is_null() {
-            println!("could not open process {}", process.pid);
+            log.push(format!("could not open process {}", process.pid));
             return;
         }
         let result = SetProcessAffinityMask(handle, mask.try_into().unwrap());
         CloseHandle(handle);
         if result == 0 {
-            println!("could not set affinity for process {}", process.pid);
+            log.push(format!("could not set affinity for process {}", process.pid));
         } else {
-            println!("Successfully pinned PID {} to core {}", process.pid, core_id);
+            log.push(format!("Successfully pinned PID {} to mask {:#x}", process.pid, mask));
         }
     }
 }
 
 #[cfg(target_os = "linux")]
-fn direct_process(process: &Process, core_id: usize) {
-    // this fn directs the stated process to designated core_id (ex process -> core 5)
+fn direct_process(process: &Process, mask: usize, log: &mut Vec<String>) {
+    // Pins `process` to every core set in `mask` (bit i = core i) with a single
+    // sched_setaffinity call instead of one call per core.
     use nix::sched::{CpuSet, sched_setaffinity};
     use nix::unistd::Pid;
     let mut cpu_set = CpuSet::new();
-    cpu_set.set(core_id).expect("invalid core id");
-    match sched_setaffinity(Pid::from_raw(process.pid as i32), &cpu_set) {
-        Ok(_) => println!("Successfully pinned PID {} to core {}", process.pid, core_id),
-        Err(e) => println!("Failed to pin PID {}: {}", process.pid, e),
-    }
-}
-
-fn eco_mode() {
-    // this fn puts dispatch into eco mode so that it uses less resources
-    let processes = read_tasks();
-    let mut sys = System::new_all();
-    sys.refresh_all();
-    let core_count = sys.physical_core_count().unwrap_or(1);
-    let eco_cores = (core_count + 1) / 2;
-    for (_pid, process) in &processes {
-        for core in 0..eco_cores {
-            direct_process(process, core);
+    for core in 0..usize::BITS as usize {
+        if mask & (1 << core) != 0 {
+            let _ = cpu_set.set(core);
         }
     }
+    match sched_setaffinity(Pid::from_raw(process.pid as i32), &cpu_set) {
+        Ok(_) => log.push(format!("Successfully pinned PID {} to mask {:#x}", process.pid, mask)),
+        Err(e) => log.push(format!("Failed to pin PID {}: {}", process.pid, e)),
+    }
 }
 
-fn performance_mode(priority: &HashSet<usize>) {
+fn eco_mode(log: &mut Vec<String>) {
+    // Puts dispatch into eco mode by restricting every process to the first
+    // half of cores. One affinity call per process (mask covering all eco
+    // cores at once) instead of one call per core per process — the latter
+    // did (processes * cores) OpenProcess/SetAffinity/CloseHandle round trips
+    // to achieve the same result, since each call just overwrote the last.
+    let processes = read_tasks();
+    let core_count = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+    let eco_cores = (core_count + 1) / 2;
+    let mask: usize = (0..eco_cores).fold(0, |m, c| m | (1 << c));
+    for (_pid, process) in &processes {
+        direct_process(process, mask, log);
+    }
+}
+
+fn performance_mode(priority: &HashSet<usize>, log: &mut Vec<String>) {
     // this fn puts dispatch into performance mode [idk what to say lol]
     // will direct priority processes first then will direct based on mem_process()
     let processes = read_tasks();
     let sys = refreshed_system();
-    let core_count = sys.physical_core_count().unwrap_or(1);
+    let core_count = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+    // Priority processes get unrestricted affinity (every core) in one call;
+    // looping SetProcessAffinityMask per core only ever left them pinned to
+    // whichever core happened to be last in the loop.
+    let all_cores: usize = (0..core_count).fold(0, |m, c| m | (1 << c));
 
     for (pid, process) in &processes {
         if priority.contains(pid) {
-            for core in 0..core_count {
-                direct_process(process, core);
-            }
+            direct_process(process, all_cores, log);
         }
     }
 
@@ -141,7 +150,7 @@ fn performance_mode(priority: &HashSet<usize>) {
     });
 
     for (i, process) in ranked.into_iter().enumerate() {
-        direct_process(process, i % core_count);
+        direct_process(process, 1 << (i % core_count), log);
     }
 }
 
@@ -150,12 +159,9 @@ fn performance_mode(priority: &HashSet<usize>) {
 // refreshes spaced MIN_CPU_REFRESH_GAP apart (see `refreshed_system`) or this is 0.0.
 fn cpu_usage_of(sys: &System, pid: Pid) -> f32 {
     if let Some(process) = sys.process(pid) {
-        let cpu_usage: f32 = process.cpu_usage();
-        println!("Process '{}' is using {:.2}% CPU", process.name(), cpu_usage);
-        return cpu_usage;
+        process.cpu_usage()
     } else {
-        println!("Process with PID {} not found.", pid);
-        return 0.0;
+        0.0
     }
 }
 
@@ -174,12 +180,11 @@ fn refreshed_system() -> System {
 
 // Core scorer: combines normalized cpu/mem usage into a single 0..~20_000 score,
 // or PRIORITY_BONUS outright if `pid` is in the user-flagged priority set (a flagged
-// process always outranks an unflagged one, however heavy, so threshold-based logic
-// like `kill_low_priority` can never touch it). `sys` must come from `refreshed_system`
-// (or two refreshes spaced MIN_CPU_REFRESH_GAP apart) for the cpu term to be meaningful.
+// process always outranks an unflagged one, however heavy). `sys` must come from
+// `refreshed_system` (or two refreshes spaced MIN_CPU_REFRESH_GAP apart) for the
+// cpu term to be meaningful.
 fn score_process(sys: &System, priority: &HashSet<usize>, pid: Pid) -> u32 {
     if sys.process(pid).is_none() {
-        println!("failiure retrieving eval for pid: {}", pid);
         return 0;
     }
 
@@ -200,7 +205,7 @@ fn score_process(sys: &System, priority: &HashSet<usize>, pid: Pid) -> u32 {
 // Combines CPU usage and memory into a single priority score (higher = more important).
 // Convenience wrapper for one-off lookups (used by main/tests): builds its own
 // CPU-ready System and scores with no priority pids flagged. Batch callers that need
-// to score many pids (performance_mode, kill_low_priority, ...) should build one
+// to score many pids (performance_mode, ...) should build one
 // `refreshed_system()` + priority set and call `score_process` directly instead of
 // paying the refresh/sleep cost per pid.
 fn eval_process(pid: Pid) -> u32 {
@@ -210,54 +215,48 @@ fn eval_process(pid: Pid) -> u32 {
 }
 
 // This fn redistributes all processes across cores to balance load evenly.
-fn auto_balance() {
+fn auto_balance(log: &mut Vec<String>) {
     let processes = read_tasks();
-    let mut sys = System::new_all();
-    sys.refresh_all();
-    let core_count = sys.physical_core_count().unwrap_or(1);
+    let core_count = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+    let all_cores: usize = (0..core_count).fold(0, |m, c| m | (1 << c));
 
     for (_pid, process) in &processes {
-        for core in 0..core_count {
-            direct_process(process, core);
-        }
+        direct_process(process, all_cores, log);
     }
 }
 
 // Reserves dedicated cores for a single high-priority process and pushes everything else away.
-fn gaming_mode(target_pid: Pid) {
+fn gaming_mode(target_pid: Pid, log: &mut Vec<String>) {
     let processes = read_tasks();
-    let mut sys = System::new_all();
-    sys.refresh_all();
-    let core_count = sys.physical_core_count().unwrap_or(1);
+    let core_count = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
     let target = usize::from(target_pid);
 
     if let Some(process) = processes.get(&target) {
-        for core in 1..core_count {
-            direct_process(process, core);
-        }
+        let reserved: usize = (1..core_count).fold(0, |m, c| m | (1 << c));
+        direct_process(process, reserved, log);
     }
 
     for (pid, process) in &processes {
         if *pid != target {
-            direct_process(process, 0);
+            direct_process(process, 1, log);
         }
     }
 }
 
-// Terminates all processes whose score falls below `threshold`.
-fn kill_low_priority(threshold: u32) {
-    let sys = refreshed_system();
-    let priority = HashSet::new();
+// Terminates a single process by pid (used by the TUI's process-select-and-kill action).
+fn kill_process(pid: Pid, log: &mut Vec<String>) {
+    let mut sys = System::new_all();
+    sys.refresh_all();
 
-    for (pid, process) in sys.processes() {
-        let score = score_process(&sys, &priority, *pid);
-        if score < threshold {
-            if process.kill() {
-                println!("Killed PID {} ({})", pid, process.name());
-            } else {
-                println!("Failed to kill PID {} ({})", pid, process.name());
-            }
+    if let Some(process) = sys.process(pid) {
+        let name = process.name().to_string();
+        if process.kill() {
+            log.push(format!("Killed PID {} ({})", pid, name));
+        } else {
+            log.push(format!("Failed to kill PID {} ({})", pid, name));
         }
+    } else {
+        log.push(format!("No such process: PID {}", pid));
     }
 }
 
@@ -379,7 +378,11 @@ fn load_config(path: &str) -> (HashSet<usize>, HashSet<String>) {
 // Polls every `interval_secs` seconds, re-evaluating and re-pinning all processes.
 fn watch(interval_secs: u64) {
     loop {
-        auto_balance();
+        let mut log = Vec::new();
+        auto_balance(&mut log);
+        for line in log {
+            println!("{}", line);
+        }
         std::thread::sleep(Duration::from_secs(interval_secs));
     }
 }
