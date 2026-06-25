@@ -17,16 +17,12 @@ use ratatui::{
 use sysinfo::{Pid, System, SystemExt};
 
 use crate::{
-    auto_balance, eco_mode, gaming_mode, kill_process, performance_mode, read_tasks,
+    auto_balance, eco_mode, gaming_mode, kill_process, performance_mode, processes_from,
     refreshed_system, score_process, Process,
 };
 
-// Caps the output panel's scrollback so a long session doesn't grow unbounded.
 const MAX_OUTPUT_LINES: usize = 200;
 
-// How often continuous eco/performance mode re-applies itself while toggled
-// on, so newly spawned processes (or affinity Windows reset) get caught too
-// instead of only being pinned by a one-shot sweep at toggle time.
 const CONTINUOUS_REAPPLY_INTERVAL: Duration = Duration::from_secs(5);
 
 const HELP_TEXT: &str = "up/down select  space priority  e toggle eco  p toggle performance  \
@@ -38,26 +34,14 @@ enum ContinuousMode {
     Performance,
 }
 
-// All UI state lives here. Render code only ever reads from this; state
-// changes go through the methods below so `draw` stays dumb.
 struct App {
     processes: Vec<Process>,
     sys: System,
     priority: HashSet<usize>,
-    // `score_process` prints a line per process (via `cpu_usage_of`), so scores
-    // are cached here and only recomputed on explicit refresh/toggle instead of
-    // every frame — otherwise the render loop would flood stdout at 60fps.
     scores: HashMap<usize, u32>,
-    // Tracks both the selected row and the scroll offset, so the process table
-    // scrolls to keep the selection in view instead of clipping past the area.
     table_state: TableState,
     status: String,
-    // Action results (core pins, kills, mode summaries) land here instead of
-    // stdout, so they show up in the Output widget instead of corrupting the
-    // alternate screen.
     output: VecDeque<String>,
-    // When set, the main loop re-runs this mode every `CONTINUOUS_REAPPLY_INTERVAL`
-    // instead of relying on a single sweep applied at toggle time.
     continuous_mode: Option<ContinuousMode>,
     last_applied: Instant,
 }
@@ -82,9 +66,9 @@ impl App {
     }
 
     fn refresh(&mut self) {
-        self.processes = read_tasks().into_values().collect();
-        self.processes.sort_by_key(|p| p.pid);
         self.sys = refreshed_system();
+        self.processes = processes_from(&self.sys).into_values().collect();
+        self.processes.sort_by_key(|p| p.pid);
 
         let len = self.processes.len();
         if self.table_state.selected().is_none_or(|s| s >= len) {
@@ -134,8 +118,6 @@ impl App {
         }
     }
 
-    // Re-runs whichever continuous mode is active. Called both on toggle and
-    // periodically from the main loop.
     fn apply_continuous_mode(&mut self) {
         let mut log = Vec::new();
         match self.continuous_mode {
@@ -148,11 +130,8 @@ impl App {
     }
 }
 
-// What the main loop should do after handling a key press.
 struct Outcome {
     quit: bool,
-    // Mode actions (eco/performance/auto-balance/gaming/kill) print straight to
-    // stdout, so the caller must force a full redraw afterward to wipe that output.
     redraw: bool,
 }
 
@@ -289,11 +268,9 @@ fn draw_process_table(frame: &mut Frame, area: Rect, app: &mut App) {
             Constraint::Length(3),
         ],
     )
-    .header(Row::new(vec!["PID", "Name", "Score", "Pri"]).style(Style::default().add_modifier(Modifier::BOLD)))
+    .header(Row::new(vec!["PID", "Name", "Score", "Pri  "]).style(Style::default().add_modifier(Modifier::BOLD)))
     .block(Block::default().title(" Processes ").borders(Borders::ALL));
 
-    // Stateful render: ratatui scrolls the visible window to keep
-    // `table_state.selected()` in view instead of clipping it.
     frame.render_stateful_widget(table, area, &mut app.table_state);
 }
 
@@ -319,8 +296,6 @@ fn process_row(app: &App, is_selected: bool, process: &Process) -> Row<'static> 
 }
 
 fn draw_output(frame: &mut Frame, area: Rect, app: &App) {
-    // Always show the trailing lines, like `tail -f`, instead of tracking
-    // separate scroll state.
     let visible = area.height.saturating_sub(2) as usize;
     let items: Vec<ListItem> = app
         .output
@@ -342,8 +317,6 @@ fn draw_help(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(help, area);
 }
 
-// Restores the terminal on every exit path (normal return, early `?`, or panic
-// unwind) since none of those run code placed after the main loop otherwise.
 struct TerminalGuard;
 
 impl Drop for TerminalGuard {
