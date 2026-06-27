@@ -28,17 +28,66 @@ cargo build --release
 ```sh
 cargo run
 ```
+## Installation
 
+Requires [Rust](https://www.rust-lang.org/tools/install) (stable toolchain).
+
+### Linux / macOS
+
+```bash
+git clone https://github.com/kikikian/dispatch.git
+cd dispatch
+cargo install --path .
+```
+
+This installs the `dispatch` binary to `~/.cargo/bin`. If `dispatch` isn't found after install, add it to your PATH:
+
+```bash
+echo 'export PATH="$PATH:$HOME/.cargo/bin"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+(If you're using zsh instead of bash, use `~/.zshrc` instead.)
+
+Verify:
+```bash
+dispatch read
+```
+
+### Windows (PowerShell)
+
+```powershell
+git clone https://github.com/kikikian/dispatch.git
+cd dispatch
+cargo install --path .
+```
+
+This installs `dispatch.exe` to `%USERPROFILE%\.cargo\bin`. The Rust installer adds this to PATH automatically — if it's missing, add it manually:
+
+1. Search "Environment Variables" in the Start menu → Edit environment variables for your account
+2. Edit the `Path` variable, add: `%USERPROFILE%\.cargo\bin`
+3. Restart PowerShell
+
+Verify:
+```powershell
+dispatch read
+```
+
+---
+
+**Note:** `dispatch` manages system processes (affinity, suspend, kill), so some commands may require elevated privileges:
+- Linux/macOS: run with `sudo` if you hit permission errors
+- Windows: run PowerShell as Administrator if you hit permission errors
 ---
 
 *"Built for efficiency, founded by simplicity."*
 
 ## Tickets
 
-- [ ] Finish each mode (performance, gaming, eco)
-    - [ ] Maybe multi-threading processing
-    - [ ] better algo 
+- [x] Finish each mode (performance, gaming, eco)
+    - [x] Maybe multi-threading processing
+    - [x] better algo 
 - [ ] Daemon integration
-- [ ] Testing implementation for linux
-    - [ ] likely on WSL 
+- [x] Testing implementation for linux
+    - [x] likely on WSL 
 
