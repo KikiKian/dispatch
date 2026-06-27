@@ -2,6 +2,7 @@ use sysinfo::{System, SystemExt, ProcessExt, Pid, ProcessRefreshKind};
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
 use std::time::Duration;
+use clap::{Parser, Subcommand};
 
 const W_CPU: f64 = 1.0;
 const W_MEM: f64 = 1.0;
@@ -10,6 +11,31 @@ const PRIORITY_BONUS: u32 = 1_000_000;
 mod tui;
 mod goodies;
 
+
+#[derive(Parser)]
+#[command(name = "dispatch")]
+#[command(about = "A CLI tool to dispatch and manage tasks", long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    Enroute {
+        #[arg(short, long)]
+        quiet: bool,
+    },
+
+    Quit {
+        #[arg(short, long)]
+        force: bool,
+    },
+    Read {
+        #[arg(short, long)]
+        pid: Option<usize>,
+    },
+}
 #[derive(Debug)]
 struct Process {
     pid: usize,
@@ -17,8 +43,55 @@ struct Process {
 }
 
 fn main() -> io::Result<()> {
-    tui::tui()
+    let cli = Cli::parse();
+
+    match cli.command {
+        Commands::Enroute { quiet } => {
+            if quiet {
+                quietly()
+            } else {
+                tui::tui()
+            }
+        }
+        Commands::Quit { force } => {
+            if force {
+                println!("Force-stopping dispatch");
+            } else {
+                println!("Stopping dispatch");
+            }
+            Ok(())
+        }
+        Commands::Read { pid } => {
+            match pid {
+                Some(pid) => {
+                    let sys = System::new_all();
+                    match sys.process(Pid::from(pid)) {
+                        Some(process) => println!("{} ({})", pid, process.name()),
+                        None => println!("No such process: PID {}", pid),
+                    }
+                }
+                None => {
+                    let processes = read_tasks();
+                    for (pid, process) in &processes {
+                        println!("{} ({})", pid, process.name);
+                    }
+                }
+            }
+            Ok(())
+        }
+    }
 }
+
+fn quietly() -> io::Result<()> {
+    let mut log = Vec::new();
+    auto_balance(&mut log);
+    for line in log {
+        println!("{}", line);
+    }
+    Ok(())
+}
+    
+
 
 fn processes_from(sys: &System) -> HashMap<usize, Process> {
     sys.processes()
@@ -33,13 +106,6 @@ fn processes_from(sys: &System) -> HashMap<usize, Process> {
 fn read_tasks() -> HashMap<usize, Process> {
     let sys = System::new_all();
     processes_from(&sys)
-}
-
-
-
-fn rand_pid(processes: HashMap<usize, Process>) -> usize {
-    let first_pid = processes.keys().next().unwrap();
-    return *first_pid;
 }
 
 fn mem_process(sys: &System, pid: Pid) -> u16 {
@@ -309,6 +375,8 @@ fn resume_process(pid: Pid) {
     }
 }
 
+
+// for future updates 
 fn load_config(path: &str) -> (HashSet<usize>, HashSet<String>) {
     let mut priority = HashSet::new();
     let mut blacklist = HashSet::new();
