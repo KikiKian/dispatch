@@ -27,6 +27,8 @@ enum Commands {
         quiet: bool,
     },
 
+    Visualize,
+
     Quit {
         #[arg(short, long)]
         force: bool,
@@ -52,6 +54,10 @@ fn main() -> io::Result<()> {
             } else {
                 tui::tui()
             }
+        }
+        Commands::Visualize => {
+            goodies::visualizer::visualizer();
+            Ok(())
         }
         Commands::Quit { force } => {
             if force {
